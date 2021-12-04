@@ -40,10 +40,10 @@ func (k Keeper) OnChanOpenInit(
 		return sdkerrors.Wrapf(channeltypes.ErrInvalidChannelVersion, "channel version must be '%s' (%s != %s)", types.Version, version, types.Version)
 	}
 
-	existingChannelID, found := k.GetActiveChannel(ctx, portID)
-	if found {
-		return sdkerrors.Wrapf(porttypes.ErrInvalidPort, "existing active channel (%s) for portID (%s)", existingChannelID, portID)
-	}
+	// existingChannelID, found := k.GetActiveChannel(ctx, portID)
+	// if found {
+	// 	return sdkerrors.Wrapf(porttypes.ErrInvalidPort, "existing active channel (%s) for portID (%s)", existingChannelID, portID)
+	// }
 
 	// Claim channel capability passed back by IBC module
 	if err := k.ClaimCapability(ctx, chanCap, host.ChannelCapabilityPath(portID, channelID)); err != nil {
@@ -85,7 +85,7 @@ func (k Keeper) OnChanOpenTry(
 	}
 
 	// Register interchain account if it does not already exist
-	k.RegisterInterchainAccount(ctx, counterparty.PortId)
+	// k.RegisterInterchainAccount(ctx, counterparty.PortId)
 	return nil
 }
 
@@ -95,7 +95,7 @@ func (k Keeper) OnChanOpenAck(
 	channelID string,
 	counterpartyVersion string,
 ) error {
-	k.SetActiveChannel(ctx, portID, channelID)
+	// k.SetActiveChannel(ctx, portID, channelID)
 
 	return nil
 }

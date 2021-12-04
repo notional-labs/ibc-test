@@ -28,4 +28,5 @@ enum Type {
 message IBCAccountPacketData {
   Type  type = 1;
   bytes data = 2;
+  string controller = 3;
 }

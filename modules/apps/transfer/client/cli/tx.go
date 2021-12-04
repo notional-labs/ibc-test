@@ -11,6 +11,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/version"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	ibcakeeper "github.com/cosmos/ibc-go/modules/apps/27-interchain-accounts/keeper"
+	ibcatypes "github.com/cosmos/ibc-go/modules/apps/27-interchain-accounts/types"
 	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	channelutils "github.com/cosmos/ibc-go/modules/core/04-channel/client/utils"
@@ -20,6 +23,7 @@ const (
 	flagPacketTimeoutHeight    = "packet-timeout-height"
 	flagPacketTimeoutTimestamp = "packet-timeout-timestamp"
 	flagAbsoluteTimeouts       = "absolute-timeouts"
+	flagInterChainMessages     = "interchain-messages"
 )
 
 // NewTransferTxCmd returns the command to create a NewMsgTransfer transaction
@@ -39,6 +43,8 @@ to the counterparty channel. Any timeout set to 0 is disabled.`),
 			if err != nil {
 				return err
 			}
+			cdc := clientCtx.Codec
+
 			sender := clientCtx.GetFromAddress().String()
 			srcPort := args[0]
 			srcChannel := args[1]
@@ -93,13 +99,30 @@ to the counterparty channel. Any timeout set to 0 is disabled.`),
 				}
 			}
 
+			interchain, err := cmd.Flags().GetString(flagInterChainMessages)
+			reciever, _ := sdk.AccAddressFromBech32("cosmos1rv4lvr94r64axvmy8ggtkj736argqxh3zstx67")
+			if interchain != "" {
+				bankMsg := banktypes.NewMsgSend(
+					sdk.AccAddress(ibcakeeper.GenerateAddress(sender+"channel-1"+"channel-1")), reciever, sdk.NewCoins(coin),
+				)
+				MsgBz, err := ibcatypes.SerializeCosmosTx(cdc, bankMsg)
+				if err != nil {
+					return err
+				}
+				msg := types.NewMsgTransfer(
+					srcPort, srcChannel, coin, sender, receiver, MsgBz, timeoutHeight, timeoutTimestamp,
+				)
+				return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+			}
+
 			msg := types.NewMsgTransfer(
-				srcPort, srcChannel, coin, sender, receiver, timeoutHeight, timeoutTimestamp,
+				srcPort, srcChannel, coin, sender, receiver, []byte{}, timeoutHeight, timeoutTimestamp,
 			)
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
 
+	cmd.Flags().String(flagInterChainMessages, "", "Interchain messages to be executed by destination chain")
 	cmd.Flags().String(flagPacketTimeoutHeight, types.DefaultRelativePacketTimeoutHeight, "Packet timeout block height. The timeout is disabled when set to 0-0.")
 	cmd.Flags().Uint64(flagPacketTimeoutTimestamp, types.DefaultRelativePacketTimeoutTimestamp, "Packet timeout timestamp in nanoseconds. Default is 10 minutes. The timeout is disabled when set to 0.")
 	cmd.Flags().Bool(flagAbsoluteTimeouts, false, "Timeout flags are used as absolute timeouts.")

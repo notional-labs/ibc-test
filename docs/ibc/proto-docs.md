@@ -498,6 +498,8 @@ https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#d
 | `amount` | [uint64](#uint64) |  | the token amount to be transferred |
 | `sender` | [string](#string) |  | the sender address |
 | `receiver` | [string](#string) |  | the recipient address on the destination chain |
+| `msgs` | [bytes](#bytes) |  | the msgs to execute after ibc-transfer |
+| `controller` | [string](#string) |  | controller account |
 
 
 
@@ -854,6 +856,7 @@ https://github.com/cosmos/ics/tree/master/spec/ics-020-fungible-token-transfer#d
 | `receiver` | [string](#string) |  | the recipient address on the destination chain |
 | `timeout_height` | [ibc.core.client.v1.Height](#ibc.core.client.v1.Height) |  | Timeout height relative to the current block height. The timeout is disabled when set to 0. |
 | `timeout_timestamp` | [uint64](#uint64) |  | Timeout timestamp (in nanoseconds) relative to the current block timestamp. The timeout is disabled when set to 0. |
+| `execute_messages` | [google.protobuf.Any](#google.protobuf.Any) | repeated |  |
 
 
 

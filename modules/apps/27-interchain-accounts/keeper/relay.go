@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/binary"
 
+	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/ibc-go/modules/apps/27-interchain-accounts/types"
@@ -12,23 +13,17 @@ import (
 	"github.com/tendermint/tendermint/crypto/tmhash"
 )
 
-func (k Keeper) TrySendTx(ctx sdk.Context, accountOwner sdk.AccAddress, connectionId string, data interface{}) ([]byte, error) {
-	portId := k.GeneratePortId(accountOwner.String(), connectionId)
-	// Check for the active channel
-	activeChannelId, found := k.GetActiveChannel(ctx, portId)
+func (k Keeper) TrySendTx(ctx sdk.Context, controller string, channelId string, data interface{}) ([]byte, error) {
+	portId := types.PortID
+	sourceChannelEnd, found := k.channelKeeper.GetChannel(ctx, portId, channelId)
 	if !found {
-		return nil, types.ErrActiveChannelNotFound
-	}
-
-	sourceChannelEnd, found := k.channelKeeper.GetChannel(ctx, portId, activeChannelId)
-	if !found {
-		return []byte{}, sdkerrors.Wrap(channeltypes.ErrChannelNotFound, activeChannelId)
+		return []byte{}, sdkerrors.Wrap(channeltypes.ErrChannelNotFound, channelId)
 	}
 
 	destinationPort := sourceChannelEnd.GetCounterparty().GetPortID()
 	destinationChannel := sourceChannelEnd.GetCounterparty().GetChannelID()
 
-	return k.createOutgoingPacket(ctx, portId, activeChannelId, destinationPort, destinationChannel, data)
+	return k.createOutgoingPacket(ctx, portId, channelId, destinationPort, destinationChannel, data)
 }
 
 func (k Keeper) createOutgoingPacket(
@@ -55,7 +50,7 @@ func (k Keeper) createOutgoingPacket(
 		return []byte{}, types.ErrInvalidOutgoingData
 	}
 
-	txBytes, err := k.SerializeCosmosTx(k.cdc, msgs)
+	txBytes, err := SerializeCosmosTx(k.cdc, msgs)
 	if err != nil {
 		return []byte{}, sdkerrors.Wrap(err, "invalid packet data or codec")
 	}
@@ -94,17 +89,17 @@ func (k Keeper) createOutgoingPacket(
 	return k.ComputeVirtualTxHash(packetData.Data, packet.Sequence), k.channelKeeper.SendPacket(ctx, channelCap, packet)
 }
 
-func (k Keeper) DeserializeTx(_ sdk.Context, txBytes []byte) ([]sdk.Msg, error) {
+func DeserializeTx(cdc codec.BinaryCodec, txBytes []byte) ([]sdk.Msg, error) {
 	var txRaw types.IBCTxRaw
 
-	err := k.cdc.Unmarshal(txBytes, &txRaw)
+	err := cdc.Unmarshal(txBytes, &txRaw)
 	if err != nil {
 		return nil, err
 	}
 
 	var txBody types.IBCTxBody
 
-	err = k.cdc.Unmarshal(txRaw.BodyBytes, &txBody)
+	err = cdc.Unmarshal(txRaw.BodyBytes, &txBody)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +108,7 @@ func (k Keeper) DeserializeTx(_ sdk.Context, txBytes []byte) ([]sdk.Msg, error) 
 	res := make([]sdk.Msg, len(anys))
 	for i, any := range anys {
 		var msg sdk.Msg
-		err := k.cdc.UnpackAny(any, &msg)
+		err := cdc.UnpackAny(any, &msg)
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +118,7 @@ func (k Keeper) DeserializeTx(_ sdk.Context, txBytes []byte) ([]sdk.Msg, error) 
 	return res, nil
 }
 
-func (k Keeper) AuthenticateTx(ctx sdk.Context, msgs []sdk.Msg, portId string) error {
+func (k Keeper) AuthenticateTx(ctx sdk.Context, msgs []sdk.Msg, controller string, destChannel string) error {
 	seen := map[string]bool{}
 	var signers []sdk.AccAddress
 	for _, msg := range msgs {
@@ -135,60 +130,15 @@ func (k Keeper) AuthenticateTx(ctx sdk.Context, msgs []sdk.Msg, portId string) e
 		}
 	}
 
-	interchainAccountAddr, err := k.GetInterchainAccountAddress(ctx, portId)
-	if err != nil {
-		return sdkerrors.ErrUnauthorized
-	}
+	interchainAccountAddr := sdk.AccAddress(GenerateAddress(controller + destChannel))
 
 	for _, signer := range signers {
-		if interchainAccountAddr != signer.String() {
+		if interchainAccountAddr.String() != signer.String() {
 			return sdkerrors.ErrUnauthorized
 		}
 	}
 
 	return nil
-}
-
-func (k Keeper) executeTx(ctx sdk.Context, sourcePort, destPort, destChannel string, msgs []sdk.Msg) error {
-	err := k.AuthenticateTx(ctx, msgs, sourcePort)
-	if err != nil {
-		return err
-	}
-
-	for _, msg := range msgs {
-		err := msg.ValidateBasic()
-		if err != nil {
-			return err
-		}
-	}
-
-	cacheContext, writeFn := ctx.CacheContext()
-	for _, msg := range msgs {
-		_, msgErr := k.executeMsg(cacheContext, msg)
-		if msgErr != nil {
-			err = msgErr
-			break
-		}
-	}
-
-	if err != nil {
-		return err
-	}
-
-	// Write the state transitions if all handlers succeed.
-	writeFn()
-
-	return nil
-}
-
-// It tries to get the handler from router. And, if router exites, it will perform message.
-func (k Keeper) executeMsg(ctx sdk.Context, msg sdk.Msg) (*sdk.Result, error) {
-	handler := k.msgRouter.Handler(msg)
-	if handler == nil {
-		return nil, types.ErrInvalidRoute
-	}
-
-	return handler(ctx, msg)
 }
 
 // Compute the virtual tx hash that is used only internally.
@@ -207,12 +157,12 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet) error 
 
 	switch data.Type {
 	case types.EXECUTE_TX:
-		msgs, err := k.DeserializeTx(ctx, data.Data)
+		msgs, err := DeserializeTx(k.cdc, data.Data)
 		if err != nil {
 			return err
 		}
 
-		err = k.executeTx(ctx, packet.SourcePort, packet.DestinationPort, packet.DestinationChannel, msgs)
+		err = k.executeKeeper.ExecuteTx(ctx, data.Controller, packet.DestinationChannel, types.PortID, msgs)
 		if err != nil {
 			return err
 		}

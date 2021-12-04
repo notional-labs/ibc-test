@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -12,9 +14,12 @@ import (
 	capabilitykeeper "github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	icatypes "github.com/cosmos/ibc-go/modules/apps/27-interchain-accounts/types"
 	"github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
 	host "github.com/cosmos/ibc-go/modules/core/24-host"
+
+	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 )
 
 // Keeper defines the IBC fungible transfer keeper
@@ -27,13 +32,14 @@ type Keeper struct {
 	portKeeper    types.PortKeeper
 	authKeeper    types.AccountKeeper
 	bankKeeper    types.BankKeeper
+	executeKeeper icatypes.ExecuteKeeper
 	scopedKeeper  capabilitykeeper.ScopedKeeper
 }
 
 // NewKeeper creates a new IBC transfer Keeper instance
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
-	channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
+	channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper, executeKeeper icatypes.ExecuteKeeper,
 	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
 ) Keeper {
 
@@ -55,6 +61,7 @@ func NewKeeper(
 		portKeeper:    portKeeper,
 		authKeeper:    authKeeper,
 		bankKeeper:    bankKeeper,
+		executeKeeper: executeKeeper,
 		scopedKeeper:  scopedKeeper,
 	}
 }
@@ -139,6 +146,43 @@ func (k Keeper) GetAllDenomTraces(ctx sdk.Context) types.Traces {
 	})
 
 	return traces.Sort()
+}
+
+func (k Keeper) SerializeCosmosTx(cdc codec.BinaryCodec, data interface{}) ([]byte, error) {
+	msgs := make([]sdk.Msg, 0)
+	switch data := data.(type) {
+	case sdk.Msg:
+		msgs = append(msgs, data)
+	case []sdk.Msg:
+		msgs = append(msgs, data...)
+	default:
+		return nil, fmt.Errorf("invalid outgoing data")
+	}
+
+	msgAnys := make([]*codectypes.Any, len(msgs))
+
+	for i, msg := range msgs {
+		var err error
+		msgAnys[i], err = codectypes.NewAnyWithValue(msg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	txBody := &icatypes.IBCTxBody{
+		Messages: msgAnys,
+	}
+
+	txRaw := &icatypes.IBCTxRaw{
+		BodyBytes: cdc.MustMarshal(txBody),
+	}
+
+	bz, err := cdc.Marshal(txRaw)
+	if err != nil {
+		return nil, err
+	}
+
+	return bz, nil
 }
 
 // IterateDenomTraces iterates over the denomination traces in the store

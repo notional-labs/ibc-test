@@ -213,7 +213,7 @@ func init() {
 		panic(err)
 	}
 
-	DefaultNodeHome = filepath.Join(userHomeDir, ".simapp")
+	DefaultNodeHome = filepath.Join(userHomeDir, ".simd")
 }
 
 // NewSimApp returns a reference to an initialized SimApp.
@@ -321,10 +321,12 @@ func NewSimApp(
 		&stakingKeeper, govRouter,
 	)
 
+	executeKeeper := icakeeper.NewExecuteKeeper(app.MsgServiceRouter())
+
 	// Create Transfer Keepers
 	app.TransferKeeper = ibctransferkeeper.NewKeeper(
 		appCodec, keys[ibctransfertypes.StoreKey], app.GetSubspace(ibctransfertypes.ModuleName),
-		app.IBCKeeper.ChannelKeeper, &app.IBCKeeper.PortKeeper,
+		app.IBCKeeper.ChannelKeeper, &app.IBCKeeper.PortKeeper, executeKeeper,
 		app.AccountKeeper, app.BankKeeper, scopedTransferKeeper,
 	)
 	transferModule := transfer.NewAppModule(app.TransferKeeper)
@@ -332,7 +334,7 @@ func NewSimApp(
 	app.ICAKeeper = icakeeper.NewKeeper(
 		keys[icatypes.MemStoreKey], appCodec, keys[icatypes.StoreKey],
 		app.IBCKeeper.ChannelKeeper, &app.IBCKeeper.PortKeeper,
-		app.AccountKeeper, scopedICAKeeper, app.MsgServiceRouter(), app,
+		app.AccountKeeper, scopedICAKeeper, executeKeeper, app,
 	)
 	icaModule := ica.NewAppModule(app.ICAKeeper)
 

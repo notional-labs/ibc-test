@@ -45,3 +45,8 @@ type PortKeeper interface {
 	BindPort(ctx sdk.Context, portID string) *capabilitytypes.Capability
 	LookupModuleByPort(ctx sdk.Context, portID string) (string, *capabilitytypes.Capability, error)
 }
+
+// Execute defines the expected keeper for executing tx
+type ExecuteKeeper interface {
+	ExecuteTx(ctx sdk.Context, controller string, DestChannel string, DestPort string, msgs []sdk.Msg) error
+}
